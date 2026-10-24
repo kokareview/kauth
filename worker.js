@@ -9,6 +9,11 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     try {
+if (path === '/api/domain/add' && request.method === 'POST') return await handleAddDomain(request, env, corsHeaders);
+if (path === '/api/domain/list' && request.method === 'GET') return await handleListDomains(request, env, corsHeaders);
+if (path === '/api/domain/approve' && request.method === 'POST') return await handleApproveDomain(request, env, corsHeaders);
+if (path === '/sso/auth' && request.method === 'GET') return await handleSSOAuth(request, env, url, corsHeaders);
+if (path === '/sso/callback' && request.method === 'POST') return await handleSSOCallback(request, env, url, corsHeaders);
        if (path === '/login' && request.method === 'GET') {
          return await handleSSOLogin(request, env, url, corsHeaders);
        }
