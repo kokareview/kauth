@@ -1,0 +1,6 @@
+name = "kauth"
+main = "worker.js"
+compatibility_date = "2026-10-24"
+[[kv_namespaces]]
+binding = "KV"
+id = "836740992f534d33a1866c9483e950a3"
