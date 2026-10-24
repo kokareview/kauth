@@ -224,3 +224,76 @@ async function handleSSOSubmit(request, env, url, cors) {
   finalRedirect.searchParams.set('kauth_token', token);
   return Response.redirect(finalRedirect.toString(), 302);
     }
+async function handleAddDomain(request, env, cors) {
+  const user = await getUser(env, request);
+  if (!user) return json({ error: 'Не авторизован' }, 401, cors);
+
+  const { serviceId, domain } = await request.json();
+  if (!serviceId || !domain) return json({ error: 'Укажи сервис и домен' }, 400, cors);
+
+  const domainData = { 
+    domain, 
+    serviceId, 
+    owner: user.username, 
+    status: 'pending',
+    created_at: Date.now() 
+ };
+
+  await env.KV.put(`domain:${domain}`, JSON.stringify(domainData));
+  return json({ ok: true, message: 'Домен отправлен на модерацию' }, 200, cors);}
+
+async function handleListDomains(request, env, cors) {
+  const user = await getUser(env, request);
+  if (!user) return json({ error: 'Не авторизован' }, 401, cors);
+  const list = await env.KV.list({ prefix: 'domain:' });
+  const myDomains = [];
+  for (const key of list.keys) {
+    const d = JSON.parse(await env.KV.get(key.name));
+    if (d.owner === user.username) myDomains.push(d);
+  }
+  return json({ ok: true, domains: myDomains }, 200, cors);
+}
+async function handleApproveDomain(request, env, cors) {
+  const { domain } = await request.json();
+  const domainKey = `domain:${domain}`;
+  const domainStr = await env.KV.get(domainKey);
+  if (!domainStr) return json({ error: 'Домен не найден' }, 404, cors);
+  const data = JSON.parse(domainStr);
+  data.status = 'approved';
+  await env.KV.put(domainKey, JSON.stringify(data));
+  return json({ ok: true, message: 'Домен подтвержден!' }, 200, cors);
+}
+async function handleSSOAuth(request, env, url, cors) {
+  const appId = url.searchParams.get('app_id');
+  const redirect = url.searchParams.get('redirect');
+  if (!appId || !redirect) return new Response('Не указан app_id или redirect', { status: 400 });
+  const html = `
+    <!DOCTYPE html>
+    <html><body>
+      <h2>Вход в ${appId}</h2>
+      <form action="/sso/callback?app_id=${appId}&redirect=${encodeURIComponent(redirect)}" method="POST">
+        <input type="text" name="kauth_id" placeholder="Твой KAuth ID" required>
+        <button type="submit">Войти</button>
+      </form>
+    </body></html>
+  `;
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+async function handleSSOCallback(request, env, url, cors) {
+  const appId = url.searchParams.get('app_id');
+  const redirect = url.searchParams.get('redirect');
+  const formData = await request.formData();
+  const kauthId = formData.get('kauth_id');
+  const user = await env.KV.get(`user:${kauthId}`);
+  if (!user) {
+    return new Response('Пользователь с таким ID не найден. <a href="javascript:history.back()">Назад</a>', { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+  const token = generateToken();
+  const sessionData = { username: kauthId, expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000 };
+  await env.KV.put(`session:${token}`, JSON.stringify(sessionData), { expirationTtl: 30 * 24 * 60 * 60 });
+  const finalRedirect = new URL(redirect);
+  finalRedirect.searchParams.set('kauth_token', token);
+  finalRedirect.searchParams.set('app_id', appId);
+
+  return Response.redirect(finalRedirect.toString(), 302);
+}
