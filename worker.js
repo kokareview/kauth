@@ -9,6 +9,12 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     try {
+       if (path === '/login' && request.method === 'GET') {
+         return await handleSSOLogin(request, env, url, corsHeaders);
+       }
+       if (path === '/sso/login' && request.method === 'POST') {
+          return await handleSSOSubmit(request, env, url, corsHeaders);
+       }
       if (path === '/api/register' && request.method === 'POST') return await handleRegister(request, env, corsHeaders);
       if (path === '/api/login' && request.method === 'POST') return await handleLogin(request, env, corsHeaders);
       if (path === '/api/update' && request.method === 'POST') return await handleUpdate(request, env, corsHeaders);
@@ -171,3 +177,45 @@ async function handleGetData(request, env, url, cors) {
   const dataStr = await env.KV.get(`data:${serviceId}:${user.username}`);  
   return json({ ok: true, data: dataStr ? JSON.parse(dataStr) : {} }, 200, cors);
 }
+async function handleSSOLogin(request, env, url, cors) {
+  const redirectUrl = url.searchParams.get('redirect') || '/';
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Вход в KAuth</title>
+    </head>
+    <body>
+      <h2>Вход через KAuth</h2>
+      <form action="/sso/login?redirect=${encodeURIComponent(redirectUrl)}" method="POST">
+        <input type="text" name="username" placeholder="Логин" required>
+        <input type="password" name="password" placeholder="Пароль" required>
+        <button type="submit">Войти</button>
+      </form>
+    </body>
+    </html>
+  `;
+  return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+}
+async function handleSSOSubmit(request, env, url, cors) {
+  const redirectUrl = url.searchParams.get('redirect') || '/';
+  const formData = await request.formData();
+  const username = formData.get('username');
+  const password = formData.get('password');
+  const userStr = await env.KV.get(`user:${username}`);
+  if (!userStr) {
+    return new Response('Неверный логин или пароль. <a href="javascript:history.back()">Назад</a>', { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+  const user = JSON.parse(userStr);
+  const hash = await hashPassword(password);  
+  if (user.password_hash !== hash) {
+    return new Response('Неверный логин или пароль. <a href="javascript:history.back()">Назад</a>', { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
+  const token = generateToken();
+  const sessionData = { username: user.username, expires_at: Date.now() + 30 * 24 * 60 * 60 * 1000 };
+  await env.KV.put(`session:${token}`, JSON.stringify(sessionData), { expirationTtl: 30 * 24 * 60 * 60 });
+  const finalRedirect = new URL(redirectUrl);
+  finalRedirect.searchParams.set('kauth_token', token);
+  return Response.redirect(finalRedirect.toString(), 302);
+    }
