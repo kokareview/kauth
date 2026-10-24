@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KAuth Панель</title>
+</head>
+<body>
+
+    <h1>KAuth Панель</h1>
+
+    <div id="authSection">
+        <h3>Авторизация</h3>
+        <input type="text" id="authUsername" placeholder="Логин">
+        <input type="password" id="authPassword" placeholder="Пароль">
+        <button onclick="doRegister()">Создать аккаунт</button>
+        <button onclick="doLogin()">Войти</button>
+    </div>
+
+    <div id="dashboardSection" style="display: none;">
+        
+        <hr>
+        <h3>Профиль: <span id="currentUser"></span></h3>
+        <button onclick="doLogout()">Выйти</button>
+        <button onclick="doDeleteAccount()">Удалить аккаунт</button>
+
+        <hr>
+        <h3>Изменить данные</h3>
+        <input type="text" id="newUsername" placeholder="Новый ник">
+        <button onclick="doUpdateUsername()">Сменить ник</button>
+        <br><br>
+        <input type="password" id="newPassword" placeholder="Новый пароль">
+        <button onclick="doUpdatePassword()">Сменить пароль</button>
+        <br><br>
+        <input type="text" id="newAvatar" placeholder="Ссылка на аватарку">
+        <button onclick="doUpdateAvatar()">Сменить аватарку</button>
+
+        <hr>
+        <h3>Сервисы (FelineAPI)</h3>
+        <input type="text" id="serviceId" placeholder="ID сервиса (felineapi)">
+        <input type="text" id="serviceName" placeholder="Название (FelineAPI)">
+        <button onclick="doCreateService()">Создать сервис</button>
+        <br><br>
+        <button onclick="doListServices()">Обновить список</button>
+        <ul id="servicesList"></ul>
+
+        <hr>
+        <h3>Данные сервиса</h3>
+        <input type="text" id="dataServiceId" placeholder="ID сервиса">
+        <input type="text" id="dataJson" placeholder='{"theme":"dark"}'>
+        <button onclick="doSaveData()">Сохранить</button>
+        <button onclick="doGetData()">Загрузить</button>
+        <button onclick="doUnlinkService()">Отвязать</button>
+        <p id="dataStatus"></p>
+
+        <hr>
+        <h3>Подтверждение пароля</h3>
+        <input type="password" id="verifyPasswordInput" placeholder="Пароль">
+        <button onclick="doVerify()">Подтвердить</button>
+        <p id="verifyStatus"></p>
+
+    </div>
+
+    <script src="https://kokareview.github.io/kauth/auth.js"></script>
+
+    <script>
+        window.onload = () => {
+            if (KAuth.isLoggedIn()) {
+                showDashboard();
+            }
+        };
+
+        function showDashboard() {
+            document.getElementById('authSection').style.display = 'none';
+            document.getElementById('dashboardSection').style.display = 'block';
+            const user = KAuth.getCurrentUser();
+            document.getElementById('currentUser').textContent = user ? user.username : 'Ошибка';
+        }
+
+        function hideDashboard() {
+            document.getElementById('authSection').style.display = 'block';
+            document.getElementById('dashboardSection').style.display = 'none';
+        }
+
+        async function doRegister() {
+            const u = document.getElementById('authUsername').value;
+            const p = document.getElementById('authPassword').value;
+            const res = await KAuth.register(u, p);
+            alert(res.ok ? 'Аккаунт создан' : res.error);
+        }
+
+        async function doLogin() {
+            const u = document.getElementById('authUsername').value;
+            const p = document.getElementById('authPassword').value;
+            const res = await KAuth.login(u, p);
+            if (res.ok) {
+                showDashboard();
+            } else {
+                alert(res.error);
+            }
+        }
+
+        function doLogout() {
+            localStorage.removeItem('kauth_token');
+            localStorage.removeItem('kauth_user');
+            hideDashboard();
+        }
+
+        async function doUpdateUsername() {
+            const val = document.getElementById('newUsername').value;
+            const res = await KAuth.update({ newUsername: val });
+            if(res.ok) {
+                alert('Ник изменён');
+                doLogout();
+            } else alert(res.error);
+        }
+
+        async function doUpdatePassword() {
+            const val = document.getElementById('newPassword').value;
+            const res = await KAuth.update({ newPassword: val });
+            alert(res.ok ? 'Пароль изменён' : res.error);
+        }
+
+        async function doUpdateAvatar() {
+            const val = document.getElementById('newAvatar').value;
+            const res = await KAuth.update({ newAvatar: val });
+            alert(res.ok ? 'Аватарка изменена' : res.error);
+        }
+
+        async function doDeleteAccount() {
+            if (!confirm('Удалить аккаунт?')) return;
+            const res = await KAuth.deleteAccount();
+            if (res.ok) {
+                alert('Аккаунт удалён');
+                doLogout();
+            } else alert(res.error);
+        }
+
+        async function doCreateService() {
+            const id = document.getElementById('serviceId').value;
+            const name = document.getElementById('serviceName').value;
+            const res = await KAuth.createService(id, name);
+            if (res.ok) {
+                alert('Сервис создан. Ключ: ' + res.secret);
+                doListServices();
+            } else alert(res.error);
+        }
+
+        async function doListServices() {
+            const res = await KAuth.listServices();
+            const ul = document.getElementById('servicesList');
+            ul.innerHTML = '';
+            if (res.ok) {
+                if(res.services.length === 0) ul.innerHTML = '<li>Нет сервисов</li>';
+                res.services.forEach(s => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<span><b>${s.name}</b> (ID: ${s.id})</span> 
+                                    <button onclick="deleteService('${s.id}')">Удалить</button>`;
+                    ul.appendChild(li);
+                });
+            } else {
+                ul.innerHTML = `<li>Ошибка: ${res.error}</li>`;
+            }
+        }
+
+        async function deleteService(id) {
+            if (!confirm('Удалить сервис?')) return;
+            const res = await KAuth.deleteService(id);
+            if (res.ok) {
+                doListServices();
+            } else alert(res.error);
+        }
+
+        async function doSaveData() {
+            const id = document.getElementById('dataServiceId').value;
+            const jsonStr = document.getElementById('dataJson').value;
+            const statusBox = document.getElementById('dataStatus');
+            
+            try {
+                const data = JSON.parse(jsonStr);
+                const res = await KAuth.saveServiceData(id, data);
+                statusBox.textContent = res.ok ? 'Сохранено' : res.error;
+            } catch (e) {
+                statusBox.textContent = 'Ошибка JSON';
+            }
+        }
+
+        async function doGetData() {
+            const id = document.getElementById('dataServiceId').value;
+            const res = await KAuth.getServiceData(id);
+            const statusBox = document.getElementById('dataStatus');
+            statusBox.textContent = res.ok ? JSON.stringify(res.data) : res.error;
+        }
+
+        async function doUnlinkService() {
+            const id = document.getElementById('dataServiceId').value;
+            if(!confirm('Отвязать сервис?')) return;
+            const res = await KAuth.unlinkService(id);
+            const statusBox = document.getElementById('dataStatus');
+            statusBox.textContent = res.ok ? 'Отвязано' : res.error;
+        }
+
+        async function doVerify() {
+            const p = document.getElementById('verifyPasswordInput').value;
+            const res = await KAuth.verifyPassword(p);
+            const statusBox = document.getElementById('verifyStatus');
+            statusBox.textContent = res.ok ? 'Пароль верный' : res.error;
+        }
+    </script>
+</body>
+  </html>
