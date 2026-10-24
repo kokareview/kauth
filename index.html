@@ -8,19 +8,25 @@
 <body>
 
     <h1>KAuth Панель</h1>
-
+    
     <div id="authSection">
         <h3>Авторизация</h3>
-        <input type="text" id="authUsername" placeholder="Логин">
+        <input type="text" id="authUsername" placeholder="Логин (KAuth ID)">
         <input type="password" id="authPassword" placeholder="Пароль">
         <button onclick="doRegister()">Создать аккаунт</button>
         <button onclick="doLogin()">Войти</button>
     </div>
 
+
     <div id="dashboardSection" style="display: none;">
         
         <hr>
-        <h3>Профиль: <span id="currentUser"></span></h3>
+        <h3>Профиль</h3>
+        <div>
+            <img id="userAvatar" src="" alt="Аватар" style="width: 50px; height: 50px; display: none;">
+            <strong>Ваш ID:</strong> <span id="currentUser"></span>
+        </div>
+        <br>
         <button onclick="doLogout()">Выйти</button>
         <button onclick="doDeleteAccount()">Удалить аккаунт</button>
 
@@ -36,13 +42,22 @@
         <button onclick="doUpdateAvatar()">Сменить аватарку</button>
 
         <hr>
-        <h3>Сервисы (FelineAPI)</h3>
+        <h3>Сервисы (FelineAPI и др.)</h3>
         <input type="text" id="serviceId" placeholder="ID сервиса (felineapi)">
         <input type="text" id="serviceName" placeholder="Название (FelineAPI)">
         <button onclick="doCreateService()">Создать сервис</button>
         <br><br>
-        <button onclick="doListServices()">Обновить список</button>
+        <button onclick="doListServices()">Обновить список сервисов</button>
         <ul id="servicesList"></ul>
+
+        <hr>
+        <h3>Домены для сервисов</h3>
+        <input type="text" id="domainServiceId" placeholder="ID сервиса (felineapi)">
+        <input type="text" id="domainUrl" placeholder="Домен (например, felineapi.ru)">
+        <button onclick="doAddDomain()">Добавить домен</button>
+        <br><br>
+        <button onclick="doListDomains()">Показать мои домены</button>
+        <ul id="domainsList"></ul>
 
         <hr>
         <h3>Данные сервиса</h3>
@@ -54,10 +69,10 @@
         <p id="dataStatus"></p>
 
         <hr>
-        <h3>Подтверждение пароля</h3>
-        <input type="password" id="verifyPasswordInput" placeholder="Пароль">
-        <button onclick="doVerify()">Подтвердить</button>
-        <p id="verifyStatus"></p>
+        <h3>Админка (Подтверждение доменов)</h3>
+        <input type="text" id="approveDomainInput" placeholder="Домен для подтверждения">
+        <button onclick="doApproveDomain()">Подтвердить домен</button>
+        <p id="approveStatus"></p>
 
     </div>
 
@@ -73,14 +88,27 @@
         function showDashboard() {
             document.getElementById('authSection').style.display = 'none';
             document.getElementById('dashboardSection').style.display = 'block';
+            
             const user = KAuth.getCurrentUser();
-            document.getElementById('currentUser').textContent = user ? user.username : 'Ошибка';
+            if (user) {
+                document.getElementById('currentUser').textContent = user.username;
+            
+        
+                const avatarImg = document.getElementById('userAvatar');
+                if (user.avatar) {
+                    avatarImg.src = user.avatar;
+                    avatarImg.style.display = 'block';
+                } else {
+                    avatarImg.style.display = 'none';
+                }
+            }
         }
 
         function hideDashboard() {
             document.getElementById('authSection').style.display = 'block';
             document.getElementById('dashboardSection').style.display = 'none';
         }
+
 
         async function doRegister() {
             const u = document.getElementById('authUsername').value;
@@ -106,11 +134,12 @@
             hideDashboard();
         }
 
+    
         async function doUpdateUsername() {
             const val = document.getElementById('newUsername').value;
             const res = await KAuth.update({ newUsername: val });
             if(res.ok) {
-                alert('Ник изменён');
+                alert('Ник изменён, войдите заново');
                 doLogout();
             } else alert(res.error);
         }
@@ -124,18 +153,25 @@
         async function doUpdateAvatar() {
             const val = document.getElementById('newAvatar').value;
             const res = await KAuth.update({ newAvatar: val });
-            alert(res.ok ? 'Аватарка изменена' : res.error);
+            if (res.ok) {
+                alert('Аватарка изменена');
+                const user = KAuth.getCurrentUser();
+                user.avatar = val;
+                localStorage.setItem('kauth_user', JSON.stringify(user));
+                showDashboard();
+            } else {
+                alert(res.error);
+            }
         }
 
         async function doDeleteAccount() {
-            if (!confirm('Удалить аккаунт?')) return;
+            if (!confirm('Точно удалить аккаунт?')) return;
             const res = await KAuth.deleteAccount();
             if (res.ok) {
                 alert('Аккаунт удалён');
                 doLogout();
             } else alert(res.error);
         }
-
         async function doCreateService() {
             const id = document.getElementById('serviceId').value;
             const name = document.getElementById('serviceName').value;
@@ -166,10 +202,56 @@
         async function deleteService(id) {
             if (!confirm('Удалить сервис?')) return;
             const res = await KAuth.deleteService(id);
-            if (res.ok) {
-                doListServices();
-            } else alert(res.error);
+            if (res.ok) doListServices();
+            else alert(res.error);
         }
+
+
+        async function doAddDomain() {
+            const serviceId = document.getElementById('domainServiceId').value;
+            const domain = document.getElementById('domainUrl').value;
+            
+
+            const token = localStorage.getItem('kauth_token');
+            const res = await fetch(`${KAUTH_URL}/api/domain/add`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({ serviceId, domain })
+            });
+            const data = await res.json();
+            
+            if(data.ok) {
+                alert('Домен добавлен и ожидает подтверждения админом');
+                doListDomains();
+            } else {
+                alert(data.error);
+            }
+        }
+
+        async function doListDomains() {
+            const token = localStorage.getItem('kauth_token');
+            const res = await fetch(`${KAUTH_URL}/api/domain/list`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            
+            const ul = document.getElementById('domainsList');
+            ul.innerHTML = '';
+            if (data.ok) {
+                if(data.domains.length === 0) ul.innerHTML = '<li>Нет доменов</li>';
+                data.domains.forEach(d => {
+                    const li = document.createElement('li');
+                    li.textContent = `${d.domain} (Сервис: ${d.serviceId}) — Статус: ${d.status}`;
+                    ul.appendChild(li);
+                });
+            } else {
+                ul.innerHTML = `<li>Ошибка: ${data.error}</li>`;
+            }
+        }
+
 
         async function doSaveData() {
             const id = document.getElementById('dataServiceId').value;
@@ -200,12 +282,22 @@
             statusBox.textContent = res.ok ? 'Отвязано' : res.error;
         }
 
-        async function doVerify() {
-            const p = document.getElementById('verifyPasswordInput').value;
-            const res = await KAuth.verifyPassword(p);
-            const statusBox = document.getElementById('verifyStatus');
-            statusBox.textContent = res.ok ? 'Пароль верный' : res.error;
+        async function doApproveDomain() {
+            const domain = document.getElementById('approveDomainInput').value;
+            const token = localStorage.getItem('kauth_token');
+            
+            const res = await fetch(`${KAUTH_URL}/api/domain/approve`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({ domain })
+            });
+            const data = await res.json();
+            const statusBox = document.getElementById('approveStatus');
+            statusBox.textContent = data.ok ? 'Домен подтвержден' : data.error;
         }
     </script>
 </body>
-  </html>
+</html>
